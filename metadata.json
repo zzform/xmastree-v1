@@ -1,0 +1,7 @@
+{
+  "name": "Lumière de Noël",
+  "description": "A high-luxury, gesture-controlled 3D Christmas experience using Computer Vision and WebGL.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

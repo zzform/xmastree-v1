@@ -2,7 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppMode, GestureState, GestureType } from './types';
 import MediaPipeController from './components/MediaPipeController';
 import { Scene } from './components/Scene';
-import { Upload, Camera, Info, MousePointer2 } from 'lucide-react';
+
+// --- INLINE ICONS ---
+const IconUpload = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+);
+const IconCamera = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+);
+const IconMouse = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
+);
 
 // Default placeholder photos
 const DEFAULT_PHOTOS = [
@@ -19,6 +29,18 @@ const App: React.FC = () => {
   const [photos, setPhotos] = useState<string[]>(DEFAULT_PHOTOS);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
+
+  // Remove Loader on Mount
+  useEffect(() => {
+    const loader = document.getElementById('loader');
+    if (loader) {
+      // Fade out
+      loader.style.opacity = '0';
+      setTimeout(() => {
+        loader.style.display = 'none';
+      }, 500);
+    }
+  }, []);
 
   // Gesture State Machine
   const handleGestureUpdate = useCallback((newGesture: GestureState) => {
@@ -75,7 +97,7 @@ const App: React.FC = () => {
         
         <div className="pointer-events-auto flex gap-4">
            <label className="cursor-pointer bg-christmas-green/80 hover:bg-christmas-green border border-christmas-gold text-christmas-gold px-4 py-2 rounded-full flex items-center gap-2 transition-all backdrop-blur-sm">
-             <Upload size={16} />
+             <IconUpload />
              <span className="text-sm font-bold">ADD PHOTOS</span>
              <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
            </label>
@@ -147,7 +169,7 @@ const App: React.FC = () => {
                 onClick={handleStart}
                 className="w-full max-w-sm bg-christmas-gold hover:bg-yellow-600 text-black font-bold py-4 px-10 rounded-full transition-all tracking-widest flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(197,160,89,0.3)] hover:shadow-[0_0_30px_rgba(197,160,89,0.5)]"
               >
-                <Camera size={20} />
+                <IconCamera />
                 ENABLE CAMERA & ENTER
               </button>
               
@@ -155,7 +177,7 @@ const App: React.FC = () => {
                 onClick={handleSkipCamera}
                 className="text-christmas-silver/50 hover:text-christmas-gold text-xs uppercase tracking-widest transition-all hover:scale-105 flex items-center gap-2 py-2"
               >
-                <MousePointer2 size={14} />
+                <IconMouse />
                 Continue without Camera
               </button>
             </div>

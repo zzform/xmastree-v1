@@ -2,17 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Lumière de Noël</title>
     
-    <!-- Styling -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Lato:wght@300;400&display=swap" rel="stylesheet">
     
-    <!-- MediaPipe Hands Global Script -->
+    <!-- MediaPipe Hands -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     
-    <!-- Babel for in-browser JSX compilation -->
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <script>
@@ -33,13 +35,41 @@
         },
       }
     </script>
+    
     <style>
-      body { margin: 0; padding: 0; overflow: hidden; background-color: #010a05; }
+      body { margin: 0; padding: 0; overflow: hidden; background-color: #010a05; touch-action: none; }
       ::-webkit-scrollbar { display: none; }
       #root { width: 100vw; height: 100vh; }
+      
+      /* Initial HTML Loader to show while Babel compiles */
+      #loader {
+        position: fixed;
+        inset: 0;
+        background-color: #010a05;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #C5A059;
+        font-family: 'Cinzel', serif;
+        transition: opacity 0.5s ease-out;
+      }
+      .spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid rgba(197, 160, 89, 0.3);
+        border-radius: 50%;
+        border-top-color: #C5A059;
+        animation: spin 1s ease-in-out infinite;
+        margin-bottom: 20px;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
     </style>
     
-    <!-- Dependency Map: Pinned to React 18.2.0 - STRICTLY CONTROLLED FOR SAFARI -->
+    <!-- Fixed Import Map: Removed conflicting React 19 entry -->
     <script type="importmap">
 {
   "imports": {
@@ -59,137 +89,87 @@
 </script>
   </head>
   <body>
+    <!-- HTML Loader Visible Immediately -->
+    <div id="loader">
+      <div class="spinner"></div>
+      <div class="text-xl tracking-widest">LOADING...</div>
+    </div>
+
     <div id="root"></div>
     
-    <!-- Main Application Script (Pure JSX/JS) -->
+    <!-- Application Logic -->
     <script type="text/babel" data-type="module" data-presets="react">
-      import React, { useState, useEffect, useRef, useMemo, useLayoutEffect, useCallback, Suspense } from 'react';
+      import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
       import ReactDOM from 'react-dom/client';
       import * as THREE from 'three';
       import { Canvas, useFrame, useThree } from '@react-three/fiber';
-      import { OrbitControls, Environment, Stars, Sparkles, Image } from '@react-three/drei';
+      import { OrbitControls, Environment, Stars, Sparkles, Image, Loader } from '@react-three/drei';
       import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
       import { Upload, Camera, MousePointer2 } from 'lucide-react';
 
       /**
-       * ------------------------------------------------------------------
-       * CONSTANTS & TYPES
-       * ------------------------------------------------------------------
+       * Constants
        */
+      const AppMode = { TREE: 'TREE', EXPLODED: 'EXPLODED', FOCUS: 'FOCUS' };
+      const GestureType = { IDLE: 'IDLE', FIST: 'FIST', OPEN_HAND: 'OPEN_HAND', PINCH: 'PINCH' };
+      const COLORS = { EMERALD: '#023020', GOLD: '#C5A059', RED: '#8A0303', SILVER: '#E5E5E5' };
+      const PARTICLE_COUNT = 300; // Reduced for Safari stability
 
-      const AppMode = {
-        TREE: 'TREE',
-        EXPLODED: 'EXPLODED',
-        FOCUS: 'FOCUS',
-      };
+      // Remove the HTML loader once React starts executing
+      const loaderEl = document.getElementById('loader');
+      if (loaderEl) {
+        // We keep it visible until the Canvas mounts, but we can fade it out logic inside App
+      }
 
-      const GestureType = {
-        IDLE: 'IDLE',
-        FIST: 'FIST',
-        OPEN_HAND: 'OPEN_HAND',
-        PINCH: 'PINCH',
-        POINT: 'POINT',
-      };
-
-      const COLORS = {
-        EMERALD: '#023020',
-        GOLD: '#C5A059',
-        RED: '#8A0303',
-        SILVER: '#E5E5E5',
-        WHITE: '#FFFFFF',
-      };
-
-      const PARTICLE_COUNT = 400;
-
-      // Math Helpers
+      /**
+       * Math Helpers
+       */
       const generateTreePosition = (index, total, height = 15, radius = 6) => {
         const y = (index / total) * height - (height / 2);
         const normY = (y + height / 2) / height;
         const currentRadius = radius * (1 - normY);
         const angle = index * 137.5 * (Math.PI / 180);
-        const x = Math.cos(angle) * currentRadius;
-        const z = Math.sin(angle) * currentRadius;
-        return [x, y, z];
+        return [Math.cos(angle) * currentRadius, y, Math.sin(angle) * currentRadius];
       };
 
       const generateExplodedPosition = (radius = 15) => {
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(Math.random() * 2 - 1);
         const r = Math.cbrt(Math.random()) * radius;
-        return [
-          r * Math.sin(phi) * Math.cos(theta),
-          r * Math.sin(phi) * Math.sin(theta),
-          r * Math.cos(phi)
-        ];
+        return [r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi)];
       };
 
       /**
-       * ------------------------------------------------------------------
-       * SERVICES: Gesture Detection
-       * ------------------------------------------------------------------
+       * Gesture Service
        */
-      const WRIST = 0;
-      const THUMB_TIP = 4;
-      const INDEX_TIP = 8;
-      const MIDDLE_TIP = 12;
-      const RING_TIP = 16;
-      const PINKY_TIP = 20;
-      const INDEX_MCP = 5;
-      const MIDDLE_MCP = 9;
-      const RING_MCP = 13;
-      const PINKY_MCP = 17;
-
-      const distance = (p1, p2) => {
-        return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
-      };
-
+      const distance = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
       const detectGesture = (landmarks) => {
         if (!landmarks || landmarks.length === 0) return GestureType.IDLE;
-
-        const thumbTip = landmarks[THUMB_TIP];
-        const indexTip = landmarks[INDEX_TIP];
-        const middleTip = landmarks[MIDDLE_TIP];
-        const ringTip = landmarks[RING_TIP];
-        const pinkyTip = landmarks[PINKY_TIP];
-        const wrist = landmarks[WRIST];
-
-        const isIndexOpen = distance(indexTip, wrist) > distance(landmarks[INDEX_MCP], wrist) * 1.2;
-        const isMiddleOpen = distance(middleTip, wrist) > distance(landmarks[MIDDLE_MCP], wrist) * 1.2;
-        const isRingOpen = distance(ringTip, wrist) > distance(landmarks[RING_MCP], wrist) * 1.2;
-        const isPinkyOpen = distance(pinkyTip, wrist) > distance(landmarks[PINKY_MCP], wrist) * 1.2;
-
+        const [wrist, , , , thumbTip, indexMCP, , , indexTip, middleMCP, , , middleTip, ringMCP, , , ringTip, pinkyMCP, , , pinkyTip] = landmarks;
+        
+        const isIndexOpen = distance(indexTip, wrist) > distance(indexMCP, wrist) * 1.2;
+        const isMiddleOpen = distance(middleTip, wrist) > distance(middleMCP, wrist) * 1.2;
+        const isRingOpen = distance(ringTip, wrist) > distance(ringMCP, wrist) * 1.2;
+        const isPinkyOpen = distance(pinkyTip, wrist) > distance(pinkyMCP, wrist) * 1.2;
         const pinchDist = distance(thumbTip, indexTip);
-        if (pinchDist < 0.05) return GestureType.PINCH;
 
+        if (pinchDist < 0.05) return GestureType.PINCH;
         if (!isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen) return GestureType.FIST;
         if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen) return GestureType.OPEN_HAND;
-
         return GestureType.IDLE;
       };
 
       /**
-       * ------------------------------------------------------------------
-       * COMPONENTS
-       * ------------------------------------------------------------------
+       * Components
        */
-
-      // MediaPipe Controller
       const MediaPipeController = ({ onGestureUpdate, permissionGranted }) => {
         const videoRef = useRef(null);
-        const [cameraActive, setCameraActive] = useState(false);
         const handsRef = useRef(null);
-        const requestRef = useRef(0);
 
         useEffect(() => {
-          if (!permissionGranted || !videoRef.current) return;
+          if (!permissionGranted || !videoRef.current || !window.Hands) return;
           
-          const mpHands = window.Hands;
-          if (!mpHands) {
-             console.error("MediaPipe Hands library not loaded.");
-             return;
-          }
-
-          const hands = new mpHands({
+          const hands = new window.Hands({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
           });
 
@@ -201,99 +181,68 @@
           });
 
           hands.onResults((results) => {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-              const landmarks = results.multiHandLandmarks[0];
-              const gestureType = detectGesture(landmarks);
-              const palmCenter = { x: landmarks[0].x, y: landmarks[0].y };
-              onGestureUpdate({ type: gestureType, position: palmCenter });
+            if (results.multiHandLandmarks?.[0]) {
+              const lm = results.multiHandLandmarks[0];
+              onGestureUpdate({ type: detectGesture(lm), position: { x: lm[0].x, y: lm[0].y } });
             } else {
               onGestureUpdate({ type: GestureType.IDLE, position: { x: 0.5, y: 0.5 } });
             }
           });
-
           handsRef.current = hands;
 
           const startCamera = async () => {
-            try {
-              const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480, facingMode: 'user' }
-              });
-              if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                await videoRef.current.play();
-                setCameraActive(true);
-                
-                const processFrame = async () => {
-                  if (!videoRef.current || !handsRef.current) return;
-                  if (videoRef.current.readyState >= 2) { 
-                    await handsRef.current.send({ image: videoRef.current });
-                  }
-                  requestRef.current = requestAnimationFrame(processFrame);
-                };
-                requestRef.current = requestAnimationFrame(processFrame);
-              }
-            } catch (err) {
-              console.error("Camera access error:", err);
-            }
+             try {
+               const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: 'user' } });
+               if (videoRef.current) {
+                 videoRef.current.srcObject = stream;
+                 await videoRef.current.play();
+                 const send = async () => {
+                   if (videoRef.current && handsRef.current) {
+                     await handsRef.current.send({ image: videoRef.current });
+                     requestAnimationFrame(send);
+                   }
+                 };
+                 send();
+               }
+             } catch (e) { console.error(e); }
           };
-
           startCamera();
 
-          return () => {
-            if (requestRef.current) cancelAnimationFrame(requestRef.current);
-            if (handsRef.current) handsRef.current.close();
-            if (videoRef.current && videoRef.current.srcObject) {
-              const stream = videoRef.current.srcObject;
-              stream.getTracks().forEach(track => track.stop());
-            }
-          };
-        }, [permissionGranted, onGestureUpdate]);
+          return () => { hands.close(); };
+        }, [permissionGranted]);
 
         return (
-          <div className="fixed bottom-4 right-4 z-50 w-32 h-24 border-2 border-christmas-gold rounded-lg overflow-hidden bg-black shadow-[0_0_15px_rgba(197,160,89,0.3)]">
-            <video ref={videoRef} className="w-full h-full object-cover transform -scale-x-100" playsInline muted />
-            {!cameraActive && permissionGranted && (
-              <div className="absolute inset-0 flex items-center justify-center text-xs text-christmas-gold bg-black/80">
-                Loading...
-              </div>
-            )}
+          <div className="fixed bottom-4 right-4 z-50 w-24 h-16 border border-christmas-gold rounded overflow-hidden bg-black opacity-50 hover:opacity-100 transition-opacity">
+            <video ref={videoRef} className="w-full h-full object-cover -scale-x-100" playsInline muted />
           </div>
         );
       };
 
-      // Ornaments
       const Ornaments = ({ mode }) => {
         const meshRef = useRef(null);
-        const tempObject = useMemo(() => new THREE.Object3D(), []);
-        const tempColor = useMemo(() => new THREE.Color(), []);
-
+        const dummy = useMemo(() => new THREE.Object3D(), []);
+        const color = useMemo(() => new THREE.Color(), []);
+        
         const particles = useMemo(() => {
-          const data = [];
           const colors = [COLORS.GOLD, COLORS.RED, COLORS.SILVER, COLORS.EMERALD];
-          for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const scale = Math.random() * 0.4 + 0.1;
-            const type = Math.random() > 0.8 ? 'CUBE' : 'SPHERE';
-            data.push({
-              id: i,
-              type,
-              position: generateTreePosition(i, PARTICLE_COUNT),
-              treePosition: generateTreePosition(i, PARTICLE_COUNT),
-              explodedPosition: generateExplodedPosition(12),
-              scale,
-              color: colors[Math.floor(Math.random() * colors.length)],
-            });
-          }
-          return data;
+          return Array.from({ length: PARTICLE_COUNT }).map((_, i) => ({
+            id: i,
+            treePos: generateTreePosition(i, PARTICLE_COUNT),
+            explodePos: generateExplodedPosition(12),
+            color: colors[Math.floor(Math.random() * colors.length)],
+            scale: Math.random() * 0.4 + 0.1
+          }));
         }, []);
 
-        useLayoutEffect(() => {
+        // Use useEffect instead of useLayoutEffect for Safari stability
+        useEffect(() => {
           if (meshRef.current) {
-            particles.forEach((particle, i) => {
-              tempObject.position.set(...particle.treePosition);
-              tempObject.scale.set(particle.scale, particle.scale, particle.scale);
-              tempObject.updateMatrix();
-              meshRef.current.setMatrixAt(i, tempObject.matrix);
-              meshRef.current.setColorAt(i, tempColor.set(particle.color));
+            particles.forEach((p, i) => {
+              dummy.position.set(...p.treePos);
+              dummy.scale.setScalar(p.scale);
+              dummy.updateMatrix();
+              meshRef.current.setMatrixAt(i, dummy.matrix);
+              meshRef.current.setColorAt(i, color.set(p.color));
             });
             meshRef.current.instanceMatrix.needsUpdate = true;
           }
@@ -302,374 +251,135 @@
         useFrame((state, delta) => {
           if (!meshRef.current) return;
           const step = 4 * delta;
-          particles.forEach((particle, i) => {
-            let target = particle.treePosition;
+          const time = state.clock.getElapsedTime();
+          
+          particles.forEach((p, i) => {
+            let [tx, ty, tz] = p.treePos;
             if (mode === AppMode.EXPLODED || mode === AppMode.FOCUS) {
-              const time = state.clock.getElapsedTime();
-              const noiseX = Math.sin(time * 0.5 + particle.id) * 0.5;
-              const noiseY = Math.cos(time * 0.3 + particle.id) * 0.5;
-              target = [
-                particle.explodedPosition[0] + noiseX,
-                particle.explodedPosition[1] + noiseY,
-                particle.explodedPosition[2]
-              ];
+              const noise = Math.sin(time * 0.5 + p.id) * 0.5;
+              tx = p.explodePos[0] + noise;
+              ty = p.explodePos[1] + Math.cos(time * 0.3 + p.id) * 0.5;
+              tz = p.explodePos[2];
             }
-            particle.position[0] = THREE.MathUtils.lerp(particle.position[0], target[0], step);
-            particle.position[1] = THREE.MathUtils.lerp(particle.position[1], target[1], step);
-            particle.position[2] = THREE.MathUtils.lerp(particle.position[2], target[2], step);
             
-            const rotationSpeed = 0.5 * delta;
-            tempObject.position.set(...particle.position);
-            tempObject.rotation.x += rotationSpeed;
-            tempObject.rotation.y += rotationSpeed;
-            tempObject.scale.set(particle.scale, particle.scale, particle.scale);
-            tempObject.updateMatrix();
-            meshRef.current.setMatrixAt(i, tempObject.matrix);
+            // Extract current position from matrix to lerp
+            meshRef.current.getMatrixAt(i, dummy.matrix);
+            dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+            
+            dummy.position.lerp(new THREE.Vector3(tx, ty, tz), step);
+            dummy.rotation.x += delta * 0.5;
+            dummy.rotation.y += delta * 0.5;
+            dummy.updateMatrix();
+            meshRef.current.setMatrixAt(i, dummy.matrix);
           });
           meshRef.current.instanceMatrix.needsUpdate = true;
         });
 
         return (
-          // Disable frustum culling for instanced mesh to prevent disappearing when camera moves or items scatter
-          <instancedMesh ref={meshRef} args={[undefined, undefined, PARTICLE_COUNT]} castShadow receiveShadow frustumCulled={false}>
-            <icosahedronGeometry args={[1, 1]} />
-            <meshStandardMaterial roughness={0.2} metalness={0.9} envMapIntensity={1.5} />
+          <instancedMesh ref={meshRef} args={[undefined, undefined, PARTICLE_COUNT]} frustumCulled={false}>
+            <icosahedronGeometry args={[1, 0]} />
+            <meshStandardMaterial roughness={0.2} metalness={0.9} />
           </instancedMesh>
         );
       };
 
-      // PhotoCloud
-      const PhotoCloud = ({ photos, mode, activePhotoIndex, gesturePosition }) => {
-        const groupRef = useRef(null);
-        
-        const photoPositions = useMemo(() => {
-          return photos.map((_, i) => ({
-            tree: generateTreePosition(i, photos.length, 12, 7),
-            exploded: generateExplodedPosition(10),
-            rotation: [0, Math.random() * Math.PI, 0],
-          }));
-        }, [photos]);
-
-        useFrame((state, delta) => {
-          if (!groupRef.current) return;
-          const step = 3 * delta;
-          groupRef.current.children.forEach((child, i) => {
-            const posData = photoPositions[i];
-            let targetPos = new THREE.Vector3(...posData.tree);
-            let targetScale = 1.5;
-            let targetRot = new THREE.Euler(...posData.rotation);
-
-            if (mode === AppMode.EXPLODED) {
-              targetPos.set(...posData.exploded);
-              targetRot.set(0, 0, 0);
-            }
-            if (mode === AppMode.FOCUS && activePhotoIndex === i) {
-              targetPos.set(0, 0, 3);
-              targetScale = 4;
-              targetRot.set(0, 0, 0);
-            } else if (mode === AppMode.FOCUS && activePhotoIndex !== i) {
-              targetPos.set(...posData.exploded);
-              targetPos.multiplyScalar(2);
-            }
-
-            child.position.lerp(targetPos, step);
-            child.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), step);
-            child.rotation.x = THREE.MathUtils.lerp(child.rotation.x, targetRot.x, step);
-            child.rotation.y = THREE.MathUtils.lerp(child.rotation.y, targetRot.y, step);
-            child.rotation.z = THREE.MathUtils.lerp(child.rotation.z, targetRot.z, step);
-
-            if (mode === AppMode.EXPLODED || (mode === AppMode.FOCUS && activePhotoIndex !== i)) {
-               child.lookAt(state.camera.position);
-            }
-          });
-        });
-
-        return (
-          <group ref={groupRef}>
-            {photos.map((url, i) => (
-              <Image key={i} url={url} transparent opacity={1} side={THREE.DoubleSide} />
-            ))}
-          </group>
-        );
-      };
-
-      // Snow
-      const Snow = () => {
-        const count = 1000;
-        const mesh = useRef(null);
-        const dummy = useMemo(() => new THREE.Object3D(), []);
-        const particles = useMemo(() => {
-          const temp = [];
-          for (let i = 0; i < count; i++) {
-            const t = Math.random() * 100;
-            const factor = 20 + Math.random() * 100;
-            const speed = 0.01 + Math.random() / 200;
-            const xFactor = -50 + Math.random() * 100;
-            const yFactor = -50 + Math.random() * 100;
-            const zFactor = -50 + Math.random() * 100;
-            temp.push({ t, factor, speed, xFactor, yFactor, zFactor, mx: 0, my: 0 });
-          }
-          return temp;
-        }, [count]);
-
-        useFrame((state, delta) => {
-          if(!mesh.current) return;
-          particles.forEach((particle, i) => {
-            let { t, factor, speed, xFactor, yFactor, zFactor } = particle;
-            t = particle.t += speed / 2;
-            const a = Math.cos(t) + Math.sin(t * 1) / 10;
-            const b = Math.sin(t) + Math.cos(t * 2) / 10;
-            const s = Math.cos(t);
-            particle.my -= speed * delta * 50; 
-            if (particle.my < -20) particle.my = 20;
-
-            dummy.position.set(
-              (particle.mx / 10) * a + xFactor + Math.cos((t / 10) * factor) + (Math.sin(t * 1) * factor) / 10,
-              particle.my + yFactor + Math.sin((t / 10) * factor) + (Math.cos(t * 2) * factor) / 10,
-              (particle.my / 10) * b + zFactor + Math.cos((t / 10) * factor) + (Math.sin(t * 3) * factor) / 10
-            );
-            dummy.scale.setScalar(s * 0.1 + 0.05);
-            dummy.rotation.set(s * 5, s * 5, s * 5);
-            dummy.updateMatrix();
-            mesh.current.setMatrixAt(i, dummy.matrix);
-          });
-          mesh.current.instanceMatrix.needsUpdate = true;
-        });
-
-        return (
-          <instancedMesh ref={mesh} args={[undefined, undefined, count]}>
-            <circleGeometry args={[0.1, 8]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={0.6} depthWrite={false} />
-          </instancedMesh>
-        );
-      };
-
-      // Scene
-      const CameraController = ({ gesture, mode }) => {
-        const { camera } = useThree();
-        const controlsRef = useRef(null);
-        useFrame((state, delta) => {
-          if (controlsRef.current) {
-            if (mode === AppMode.EXPLODED && gesture.type !== GestureType.IDLE) {
-              const targetAzimuth = (gesture.position.x - 0.5) * Math.PI * 2;
-              const targetPolar = (gesture.position.y) * Math.PI;
-              controlsRef.current.setAzimuthalAngle(
-                THREE.MathUtils.lerp(controlsRef.current.getAzimuthalAngle(), -targetAzimuth, delta * 2)
-              );
-              controlsRef.current.setPolarAngle(
-                 THREE.MathUtils.lerp(controlsRef.current.getPolarAngle(), targetPolar, delta * 2)
-              );
-            }
-            controlsRef.current.update();
-          }
-        });
-        return (
-          <OrbitControls 
-            ref={controlsRef}
-            enableZoom={true} 
-            enablePan={false}
-            minPolarAngle={Math.PI / 4}
-            maxPolarAngle={Math.PI / 1.5}
-            autoRotate={mode === AppMode.TREE}
-            autoRotateSpeed={0.5}
-          />
-        );
-      };
-
-      const Scene = ({ mode, gesture, photos }) => {
-        const [activePhoto, setActivePhoto] = useState(null);
-
-        useEffect(() => {
-          if (gesture.type === GestureType.PINCH && mode !== AppMode.TREE) {
-              if (activePhoto === null) setActivePhoto(Math.floor(Math.random() * photos.length));
-          } else if (gesture.type === GestureType.OPEN_HAND) {
-              setActivePhoto(null);
-          }
-        }, [gesture.type, mode, photos.length]);
-
-        return (
-          <Canvas shadows camera={{ position: [0, 0, 18], fov: 45 }} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}>
-            <color attach="background" args={['#010a05']} />
-            <ambientLight intensity={0.2} />
-            <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow shadow-mapSize={[1024, 1024]} color="#ffd700" />
-            <pointLight position={[-10, -10, -10]} intensity={0.5} color="#046307" />
-            
-            <Suspense fallback={null}>
-              <Environment preset="city" />
-              <group position={[0, -2, 0]}>
-                <Ornaments mode={mode} />
-                <PhotoCloud 
-                  photos={photos} 
-                  mode={activePhoto !== null ? AppMode.FOCUS : mode} 
-                  activePhotoIndex={activePhoto} 
-                  gesturePosition={gesture.position}
-                />
-                <Snow />
-              </group>
-              <Sparkles count={200} scale={12} size={2} speed={0.4} opacity={0.5} color="#C5A059" />
-              <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-            </Suspense>
-
-            <EffectComposer disableNormalPass>
-              <Bloom luminanceThreshold={0.5} mipmapBlur intensity={1.5} radius={0.4} />
-              <Vignette eskil={false} offset={0.1} darkness={1.1} />
-            </EffectComposer>
-            <CameraController gesture={gesture} mode={mode} />
-          </Canvas>
-        );
-      };
-
-      // App Root
-      const DEFAULT_PHOTOS = [
-        'https://picsum.photos/id/1011/400/400',
-        'https://picsum.photos/id/1015/400/400',
-        'https://picsum.photos/id/1016/400/400',
-        'https://picsum.photos/id/1018/400/400',
-        'https://picsum.photos/id/1025/400/400',
-      ];
-
+      // App Component
       const App = () => {
         const [mode, setMode] = useState(AppMode.TREE);
         const [gesture, setGesture] = useState({ type: GestureType.IDLE, position: { x: 0.5, y: 0.5 } });
-        const [photos, setPhotos] = useState(DEFAULT_PHOTOS);
         const [permissionGranted, setPermissionGranted] = useState(false);
         const [showIntro, setShowIntro] = useState(true);
-
-        const handleGestureUpdate = useCallback((newGesture) => {
-          setGesture(newGesture);
-          if (newGesture.type === GestureType.FIST) {
-            setMode(AppMode.TREE);
-          } else if (newGesture.type === GestureType.OPEN_HAND) {
-            setMode(prev => (prev === AppMode.TREE ? AppMode.EXPLODED : prev));
-          }
-        }, [mode]);
+        const [photos, setPhotos] = useState([
+          'https://picsum.photos/id/1011/400/400',
+          'https://picsum.photos/id/1015/400/400',
+          'https://picsum.photos/id/1016/400/400',
+        ]);
+        
+        // Remove HTML loader when React App mounts
+        useEffect(() => {
+          const l = document.getElementById('loader');
+          if(l) l.style.display = 'none';
+        }, []);
 
         const handleStart = async () => {
-          try {
-            await navigator.mediaDevices.getUserMedia({ video: true });
-            setPermissionGranted(true);
-            setShowIntro(false);
-          } catch (e) {
-            alert("Camera permission is required for gesture control.");
-          }
-        };
-
-        const handleSkipCamera = () => {
-          setPermissionGranted(false);
-          setShowIntro(false);
-        };
-
-        const handleFileUpload = (e) => {
-          if (e.target.files && e.target.files.length > 0) {
-            const newPhotos = Array.from(e.target.files).map(file => URL.createObjectURL(file));
-            setPhotos(prev => [...newPhotos, ...prev].slice(0, 15));
-          }
+            try {
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                setPermissionGranted(true);
+                setShowIntro(false);
+            } catch { alert('Permission denied'); }
         };
 
         return (
-          <div className="relative w-full h-screen bg-black overflow-hidden font-sans text-christmas-silver">
-            <div className="absolute inset-0 z-0">
-              <Scene mode={mode} gesture={gesture} photos={photos} />
-            </div>
+          <div className="relative w-full h-full font-sans text-christmas-silver">
+             <Canvas shadows camera={{ position: [0, 0, 18], fov: 45 }} gl={{ antialias: false, powerPreference: "high-performance" }}>
+                <color attach="background" args={['#010a05']} />
+                
+                {/* Wrap Heavy Assets in Suspense to prevent blocking */}
+                <Suspense fallback={null}>
+                   <Environment preset="city" />
+                   <group position={[0, -2, 0]}>
+                     <Ornaments mode={mode} />
+                     <Sparkles count={150} scale={10} size={4} speed={0.4} opacity={0.5} color="#C5A059" />
+                   </group>
+                </Suspense>
 
-            <div className="absolute top-0 left-0 w-full p-6 flex justify-between items-start pointer-events-none z-10">
-              <div>
-                <h1 className="text-4xl font-serif text-christmas-gold tracking-widest drop-shadow-[0_2px_10px_rgba(197,160,89,0.5)]">
-                  LUMIÈRE DE NOËL
-                </h1>
-                <p className="text-xs tracking-[0.3em] uppercase opacity-70 mt-2">Interactive 3D Experience</p>
-              </div>
-              
-              <div className="pointer-events-auto flex gap-4">
-                 <label className="cursor-pointer bg-christmas-green/80 hover:bg-christmas-green border border-christmas-gold text-christmas-gold px-4 py-2 rounded-full flex items-center gap-2 transition-all backdrop-blur-sm">
-                   <Upload size={16} />
-                   <span className="text-sm font-bold">ADD PHOTOS</span>
-                   <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileUpload} />
-                 </label>
-              </div>
-            </div>
+                <ambientLight intensity={0.5} />
+                <pointLight position={[10, 10, 10]} intensity={1} color="#C5A059" />
+                
+                <EffectComposer disableNormalPass>
+                  <Bloom luminanceThreshold={0.5} intensity={1.5} radius={0.4} />
+                  <Vignette eskil={false} offset={0.1} darkness={1.1} />
+                </EffectComposer>
+                
+                <OrbitControls 
+                   enableZoom={true} 
+                   autoRotate={mode === AppMode.TREE} 
+                   autoRotateSpeed={0.5} 
+                   enablePan={false}
+                />
+             </Canvas>
 
-            {permissionGranted && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center pointer-events-none">
-                 <div className="text-christmas-gold text-sm font-serif mb-2 tracking-widest uppercase">
-                    Current Gesture: <span className="font-bold">{gesture.type}</span>
-                 </div>
-                 <div className="text-xs opacity-50 text-center max-w-md">
-                    {gesture.type === GestureType.IDLE && "Show hand to interact"}
-                    {gesture.type === GestureType.FIST && "Forming the Tree"}
-                    {gesture.type === GestureType.OPEN_HAND && "Exploding particles"}
-                    {gesture.type === GestureType.PINCH && "Focusing content"}
-                 </div>
-              </div>
-            )}
+             {/* UI Overlay */}
+             <div className="absolute top-0 left-0 w-full p-6 pointer-events-none z-10">
+                <h1 className="text-3xl font-serif text-christmas-gold drop-shadow-lg">LUMIÈRE DE NOËL</h1>
+             </div>
 
-            {!permissionGranted && !showIntro && (
-              <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex gap-6">
-                  <button 
-                      onClick={() => setMode(AppMode.TREE)}
-                      className={`px-8 py-3 rounded-full border font-serif tracking-widest transition-all backdrop-blur-md ${mode === AppMode.TREE ? 'bg-christmas-gold text-black border-christmas-gold shadow-[0_0_15px_rgba(197,160,89,0.5)]' : 'bg-black/40 text-christmas-gold border-christmas-gold/40 hover:bg-black/60'}`}
-                  >
-                      TREE MODE
-                  </button>
-                  <button 
-                      onClick={() => setMode(AppMode.EXPLODED)}
-                      className={`px-8 py-3 rounded-full border font-serif tracking-widest transition-all backdrop-blur-md ${mode === AppMode.EXPLODED ? 'bg-christmas-gold text-black border-christmas-gold shadow-[0_0_15px_rgba(197,160,89,0.5)]' : 'bg-black/40 text-christmas-gold border-christmas-gold/40 hover:bg-black/60'}`}
-                  >
-                      EXPLODE MODE
-                  </button>
-              </div>
-            )}
+             {/* Mode Controls */}
+             {!permissionGranted && !showIntro && (
+               <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex gap-4">
+                  <button onClick={() => setMode(AppMode.TREE)} className="px-6 py-2 bg-christmas-gold text-black rounded font-serif">TREE</button>
+                  <button onClick={() => setMode(AppMode.EXPLODED)} className="px-6 py-2 border border-christmas-gold text-christmas-gold rounded font-serif bg-black/50">EXPLODE</button>
+               </div>
+             )}
 
-            {showIntro && (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
-                <div className="max-w-2xl w-full p-10 border border-christmas-gold/30 bg-christmas-green/20 rounded-xl text-center relative overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)]">
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-christmas-gold to-transparent"></div>
-                  <h2 className="text-5xl font-serif text-christmas-gold mb-8">Welcome</h2>
-                  <p className="text-lg text-gray-300 mb-8 leading-relaxed">
-                    Experience a cinematic Christmas journey controlled by your hands. 
-                    <br/>Use gestures to manipulate the magical tree and explore your memories.
-                  </p>
-                  
-                  <div className="grid grid-cols-3 gap-6 mb-10 text-sm">
-                    <div className="p-4 border border-white/10 rounded bg-white/5">
-                      <div className="font-bold text-christmas-gold mb-2">FIST ✊</div>
-                      <p>Form the Christmas Tree</p>
-                    </div>
-                    <div className="p-4 border border-white/10 rounded bg-white/5">
-                      <div className="font-bold text-christmas-gold mb-2">OPEN HAND 🖐️</div>
-                      <p>Explode particles & Move</p>
-                    </div>
-                    <div className="p-4 border border-white/10 rounded bg-white/5">
-                      <div className="font-bold text-christmas-gold mb-2">PINCH 👌</div>
-                      <p>Focus on a Photo</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-center gap-4">
-                    <button onClick={handleStart} className="w-full max-w-sm bg-christmas-gold hover:bg-yellow-600 text-black font-bold py-4 px-10 rounded-full transition-all tracking-widest flex items-center justify-center gap-3 shadow-[0_0_20px_rgba(197,160,89,0.3)] hover:shadow-[0_0_30px_rgba(197,160,89,0.5)]">
-                      <Camera size={20} /> ENABLE CAMERA
-                    </button>
-                    <button onClick={handleSkipCamera} className="text-christmas-silver/50 hover:text-christmas-gold text-xs uppercase tracking-widest transition-all hover:scale-105 flex items-center gap-2 py-2">
-                      <MousePointer2 size={14} /> Continue without Camera
-                    </button>
+             {/* Intro */}
+             {showIntro && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur">
+                  <div className="text-center p-8 border border-christmas-gold/30 rounded bg-christmas-green/20">
+                     <h2 className="text-4xl font-serif text-christmas-gold mb-6">Welcome</h2>
+                     <button onClick={handleStart} className="bg-christmas-gold text-black px-8 py-3 rounded font-bold tracking-widest flex items-center gap-2 mx-auto">
+                        <Camera size={20} /> ENABLE CAMERA
+                     </button>
+                     <button onClick={() => setShowIntro(false)} className="mt-4 text-xs text-gray-400 uppercase tracking-widest">Skip Camera</button>
                   </div>
                 </div>
-              </div>
-            )}
+             )}
 
-            {permissionGranted && (
-              <MediaPipeController onGestureUpdate={handleGestureUpdate} permissionGranted={permissionGranted} />
-            )}
+             {permissionGranted && (
+               <MediaPipeController 
+                  permissionGranted={permissionGranted} 
+                  onGestureUpdate={(g) => {
+                     if(g.type === GestureType.FIST) setMode(AppMode.TREE);
+                     if(g.type === GestureType.OPEN_HAND) setMode(AppMode.EXPLODED);
+                  }} 
+               />
+             )}
           </div>
         );
       };
 
-      // Mount
-      const rootElement = document.getElementById('root');
-      if (rootElement) {
-        const root = ReactDOM.createRoot(rootElement);
-        root.render(<App />);
-      }
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
     </script>
   </body>
 </html>

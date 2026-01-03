@@ -39,7 +39,7 @@
       #root { width: 100vw; height: 100vh; }
     </style>
     
-    <!-- Dependency Map: Pinned to React 18.2.0 - FIXED: Removed conflicting React 19 entry -->
+    <!-- Dependency Map: Pinned to React 18.2.0 - STRICTLY CONTROLLED FOR SAFARI -->
     <script type="importmap">
 {
   "imports": {
@@ -63,7 +63,7 @@
     
     <!-- Main Application Script (Pure JSX/JS) -->
     <script type="text/babel" data-type="module" data-presets="react">
-      import React, { useState, useEffect, useRef, useMemo, useLayoutEffect, useCallback } from 'react';
+      import React, { useState, useEffect, useRef, useMemo, useLayoutEffect, useCallback, Suspense } from 'react';
       import ReactDOM from 'react-dom/client';
       import * as THREE from 'three';
       import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -330,7 +330,8 @@
         });
 
         return (
-          <instancedMesh ref={meshRef} args={[undefined, undefined, PARTICLE_COUNT]} castShadow receiveShadow>
+          // Disable frustum culling for instanced mesh to prevent disappearing when camera moves or items scatter
+          <instancedMesh ref={meshRef} args={[undefined, undefined, PARTICLE_COUNT]} castShadow receiveShadow frustumCulled={false}>
             <icosahedronGeometry args={[1, 1]} />
             <meshStandardMaterial roughness={0.2} metalness={0.9} envMapIntensity={1.5} />
           </instancedMesh>
@@ -490,21 +491,25 @@
           <Canvas shadows camera={{ position: [0, 0, 18], fov: 45 }} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}>
             <color attach="background" args={['#010a05']} />
             <ambientLight intensity={0.2} />
-            <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow shadow-mapSize={[2048, 2048]} color="#ffd700" />
+            <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1} castShadow shadow-mapSize={[1024, 1024]} color="#ffd700" />
             <pointLight position={[-10, -10, -10]} intensity={0.5} color="#046307" />
-            <Environment preset="city" />
-            <group position={[0, -2, 0]}>
-              <Ornaments mode={mode} />
-              <PhotoCloud 
-                photos={photos} 
-                mode={activePhoto !== null ? AppMode.FOCUS : mode} 
-                activePhotoIndex={activePhoto} 
-                gesturePosition={gesture.position}
-              />
-              <Snow />
-            </group>
-            <Sparkles count={200} scale={12} size={2} speed={0.4} opacity={0.5} color="#C5A059" />
-            <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+            
+            <Suspense fallback={null}>
+              <Environment preset="city" />
+              <group position={[0, -2, 0]}>
+                <Ornaments mode={mode} />
+                <PhotoCloud 
+                  photos={photos} 
+                  mode={activePhoto !== null ? AppMode.FOCUS : mode} 
+                  activePhotoIndex={activePhoto} 
+                  gesturePosition={gesture.position}
+                />
+                <Snow />
+              </group>
+              <Sparkles count={200} scale={12} size={2} speed={0.4} opacity={0.5} color="#C5A059" />
+              <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+            </Suspense>
+
             <EffectComposer disableNormalPass>
               <Bloom luminanceThreshold={0.5} mipmapBlur intensity={1.5} radius={0.4} />
               <Vignette eskil={false} offset={0.1} darkness={1.1} />

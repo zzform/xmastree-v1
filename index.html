@@ -39,20 +39,21 @@
       #root { width: 100vw; height: 100vh; }
     </style>
     
-    <!-- Dependency Map: Pinned to React 18 and Three 0.160 for stability -->
+    <!-- Dependency Map: STRICTLY PINNED to React 18.2.0 to avoid Error #31 -->
     <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
     "three": "https://esm.sh/three@0.160.0",
     "three/": "https://esm.sh/three@0.160.0/",
-    "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.14?external=react,react-dom,three",
-    "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?external=react,react-dom,three,@react-three/fiber",
+    "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.16?external=react,react-dom,three",
+    "@react-three/drei": "https://esm.sh/@react-three/drei@9.99.0?external=react,react-dom,three,@react-three/fiber",
     "@react-three/postprocessing": "https://esm.sh/@react-three/postprocessing@2.16.0?external=react,react-dom,three,@react-three/fiber",
     "lucide-react": "https://esm.sh/lucide-react@0.300.0?external=react",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/"
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
   }
 }
 </script>
@@ -62,16 +63,13 @@
     
     <!-- Main Application Inline Script -->
     <script type="text/babel" data-type="module" data-presets="react,typescript">
-      /**
-       * IMPORTS
-       */
       import React, { useState, useEffect, useRef, useMemo, useLayoutEffect, useCallback } from 'react';
       import ReactDOM from 'react-dom/client';
       import * as THREE from 'three';
       import { Canvas, useFrame, useThree } from '@react-three/fiber';
-      import { OrbitControls, Environment, ContactShadows, Stars, Sparkles, Image, useCursor } from '@react-three/drei';
+      import { OrbitControls, Environment, Stars, Sparkles, Image } from '@react-three/drei';
       import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
-      import { Upload, Camera, MousePointer2, Info } from 'lucide-react';
+      import { Upload, Camera, MousePointer2 } from 'lucide-react';
 
       /**
        * ------------------------------------------------------------------
@@ -79,42 +77,20 @@
        * ------------------------------------------------------------------
        */
 
-      // Types
-      enum AppMode {
-        TREE = 'TREE',
-        EXPLODED = 'EXPLODED',
-        FOCUS = 'FOCUS',
-      }
+      // Enums
+      const AppMode = {
+        TREE: 'TREE',
+        EXPLODED: 'EXPLODED',
+        FOCUS: 'FOCUS',
+      };
 
-      enum GestureType {
-        IDLE = 'IDLE',
-        FIST = 'FIST',
-        OPEN_HAND = 'OPEN_HAND',
-        PINCH = 'PINCH',
-        POINT = 'POINT',
-      }
-
-      interface HandLandmark {
-        x: number;
-        y: number;
-        z: number;
-      }
-
-      interface GestureState {
-        type: GestureType;
-        position: { x: number; y: number };
-        pinchDistance?: number;
-      }
-
-      interface ParticleData {
-        id: number;
-        position: [number, number, number];
-        treePosition: [number, number, number];
-        explodedPosition: [number, number, number];
-        scale: number;
-        color: string;
-        type: 'SPHERE' | 'CUBE' | 'CANDY';
-      }
+      const GestureType = {
+        IDLE: 'IDLE',
+        FIST: 'FIST',
+        OPEN_HAND: 'OPEN_HAND',
+        PINCH: 'PINCH',
+        POINT: 'POINT',
+      };
 
       // Constants
       const COLORS = {
@@ -126,12 +102,9 @@
       };
 
       const PARTICLE_COUNT = 400;
-      const PHOTO_COUNT = 12;
 
       // Math Helpers
-      const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
-
-      const generateTreePosition = (index: number, total: number, height: number = 15, radius: number = 6): [number, number, number] => {
+      const generateTreePosition = (index, total, height = 15, radius = 6) => {
         const y = (index / total) * height - (height / 2);
         const normY = (y + height / 2) / height;
         const currentRadius = radius * (1 - normY);
@@ -141,7 +114,7 @@
         return [x, y, z];
       };
 
-      const generateExplodedPosition = (radius: number = 15): [number, number, number] => {
+      const generateExplodedPosition = (radius = 15) => {
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(Math.random() * 2 - 1);
         const r = Math.cbrt(Math.random()) * radius;
@@ -154,11 +127,9 @@
 
       /**
        * ------------------------------------------------------------------
-       * SERVICES
+       * SERVICES: Gesture Detection
        * ------------------------------------------------------------------
        */
-      
-      // Gesture Detection Logic
       const WRIST = 0;
       const THUMB_TIP = 4;
       const INDEX_TIP = 8;
@@ -170,11 +141,11 @@
       const RING_MCP = 13;
       const PINKY_MCP = 17;
 
-      const distance = (p1: HandLandmark, p2: HandLandmark) => {
+      const distance = (p1, p2) => {
         return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
       };
 
-      const detectGesture = (landmarks: HandLandmark[]): GestureType => {
+      const detectGesture = (landmarks) => {
         if (!landmarks || landmarks.length === 0) return GestureType.IDLE;
 
         const thumbTip = landmarks[THUMB_TIP];
@@ -204,7 +175,7 @@
        * ------------------------------------------------------------------
        */
 
-      // --- MediaPipe Controller ---
+      // MediaPipe Controller
       const MediaPipeController = ({ onGestureUpdate, permissionGranted }) => {
         const videoRef = useRef(null);
         const [cameraActive, setCameraActive] = useState(false);
@@ -213,7 +184,7 @@
 
         useEffect(() => {
           if (!permissionGranted || !videoRef.current) return;
-          const mpHands = (window as any).Hands;
+          const mpHands = window.Hands;
           if (!mpHands) {
              console.error("MediaPipe Hands library not loaded.");
              return;
@@ -291,7 +262,7 @@
         );
       };
 
-      // --- Ornaments ---
+      // Ornaments
       const Ornaments = ({ mode }) => {
         const meshRef = useRef(null);
         const tempObject = useMemo(() => new THREE.Object3D(), []);
@@ -367,7 +338,7 @@
         );
       };
 
-      // --- PhotoCloud ---
+      // PhotoCloud
       const PhotoCloud = ({ photos, mode, activePhotoIndex, gesturePosition }) => {
         const groupRef = useRef(null);
         
@@ -422,7 +393,7 @@
         );
       };
 
-      // --- Snow ---
+      // Snow
       const Snow = () => {
         const count = 1000;
         const mesh = useRef(null);
@@ -473,7 +444,7 @@
         );
       };
 
-      // --- Scene ---
+      // Scene
       const CameraController = ({ gesture, mode }) => {
         const { camera } = useThree();
         const controlsRef = useRef(null);
@@ -544,12 +515,7 @@
         );
       };
 
-      /**
-       * ------------------------------------------------------------------
-       * APP ROOT
-       * ------------------------------------------------------------------
-       */
-
+      // App Root
       const DEFAULT_PHOTOS = [
         'https://picsum.photos/id/1011/400/400',
         'https://picsum.photos/id/1015/400/400',
@@ -694,11 +660,7 @@
         );
       };
 
-      /**
-       * ------------------------------------------------------------------
-       * MOUNT
-       * ------------------------------------------------------------------
-       */
+      // Mount
       const rootElement = document.getElementById('root');
       if (rootElement) {
         const root = ReactDOM.createRoot(rootElement);

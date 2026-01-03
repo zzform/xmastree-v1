@@ -64,12 +64,19 @@
         animation: spin 1s ease-in-out infinite;
         margin-bottom: 20px;
       }
+      .error-msg {
+        color: #8A0303;
+        margin-top: 10px;
+        font-size: 0.8rem;
+        max-width: 80%;
+        text-align: center;
+      }
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
     </style>
     
-    <!-- Fixed Import Map: Removed conflicting React 19 entry -->
+    <!-- STRICT Import Map: React 18 Only -->
     <script type="importmap">
 {
   "imports": {
@@ -87,9 +94,24 @@
   }
 }
 </script>
+    
+    <!-- Global Error Handler -->
+    <script>
+      window.onerror = function(msg, url, line, col, error) {
+        const loader = document.getElementById('loader');
+        if (loader) {
+          loader.innerHTML = `
+            <div class="text-xl tracking-widest" style="color:#8A0303">ERROR</div>
+            <div class="error-msg">${msg}</div>
+            <div class="error-msg" style="font-family:monospace; margin-top:5px">Check console for details</div>
+          `;
+        }
+        return false;
+      };
+    </script>
   </head>
   <body>
-    <!-- HTML Loader Visible Immediately -->
+    <!-- HTML Loader -->
     <div id="loader">
       <div class="spinner"></div>
       <div class="text-xl tracking-widest">LOADING...</div>
@@ -113,13 +135,7 @@
       const AppMode = { TREE: 'TREE', EXPLODED: 'EXPLODED', FOCUS: 'FOCUS' };
       const GestureType = { IDLE: 'IDLE', FIST: 'FIST', OPEN_HAND: 'OPEN_HAND', PINCH: 'PINCH' };
       const COLORS = { EMERALD: '#023020', GOLD: '#C5A059', RED: '#8A0303', SILVER: '#E5E5E5' };
-      const PARTICLE_COUNT = 300; // Reduced for Safari stability
-
-      // Remove the HTML loader once React starts executing
-      const loaderEl = document.getElementById('loader');
-      if (loaderEl) {
-        // We keep it visible until the Canvas mounts, but we can fade it out logic inside App
-      }
+      const PARTICLE_COUNT = 300; 
 
       /**
        * Math Helpers
@@ -234,7 +250,6 @@
           }));
         }, []);
 
-        // Use useEffect instead of useLayoutEffect for Safari stability
         useEffect(() => {
           if (meshRef.current) {
             particles.forEach((p, i) => {
@@ -262,7 +277,6 @@
               tz = p.explodePos[2];
             }
             
-            // Extract current position from matrix to lerp
             meshRef.current.getMatrixAt(i, dummy.matrix);
             dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
             
@@ -280,6 +294,141 @@
             <icosahedronGeometry args={[1, 0]} />
             <meshStandardMaterial roughness={0.2} metalness={0.9} />
           </instancedMesh>
+        );
+      };
+
+      const PhotoCloud = ({ photos, mode, activePhotoIndex, gesturePosition }) => {
+        const groupRef = useRef(null);
+        
+        const photoPositions = useMemo(() => {
+          return photos.map((_, i) => ({
+            tree: generateTreePosition(i, photos.length, 12, 7),
+            exploded: generateExplodedPosition(10),
+            rotation: [0, Math.random() * Math.PI, 0],
+          }));
+        }, [photos]);
+
+        useFrame((state, delta) => {
+          if (!groupRef.current) return;
+          const step = 3 * delta;
+          groupRef.current.children.forEach((child, i) => {
+            const posData = photoPositions[i];
+            let targetPos = new THREE.Vector3(...posData.tree);
+            let targetScale = 1.5;
+            let targetRot = new THREE.Euler(...posData.rotation);
+
+            if (mode === AppMode.EXPLODED) {
+              targetPos.set(...posData.exploded);
+              targetRot.set(0, 0, 0);
+            }
+            if (mode === AppMode.FOCUS && activePhotoIndex === i) {
+              targetPos.set(0, 0, 3);
+              targetScale = 4;
+              targetRot.set(0, 0, 0);
+            } else if (mode === AppMode.FOCUS && activePhotoIndex !== i) {
+              targetPos.set(...posData.exploded);
+              targetPos.multiplyScalar(2);
+            }
+
+            child.position.lerp(targetPos, step);
+            child.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), step);
+            child.rotation.x = THREE.MathUtils.lerp(child.rotation.x, targetRot.x, step);
+            child.rotation.y = THREE.MathUtils.lerp(child.rotation.y, targetRot.y, step);
+            child.rotation.z = THREE.MathUtils.lerp(child.rotation.z, targetRot.z, step);
+
+            if (mode === AppMode.EXPLODED || (mode === AppMode.FOCUS && activePhotoIndex !== i)) {
+               child.lookAt(state.camera.position);
+            }
+          });
+        });
+
+        return (
+          <group ref={groupRef}>
+            {photos.map((url, i) => (
+              <Image key={i} url={url} transparent opacity={1} side={THREE.DoubleSide} />
+            ))}
+          </group>
+        );
+      };
+
+      const Snow = () => {
+        const count = 500;
+        const mesh = useRef(null);
+        const dummy = useMemo(() => new THREE.Object3D(), []);
+        const particles = useMemo(() => {
+          const temp = [];
+          for (let i = 0; i < count; i++) {
+            const t = Math.random() * 100;
+            const factor = 20 + Math.random() * 100;
+            const speed = 0.01 + Math.random() / 200;
+            const xFactor = -50 + Math.random() * 100;
+            const yFactor = -50 + Math.random() * 100;
+            const zFactor = -50 + Math.random() * 100;
+            temp.push({ t, factor, speed, xFactor, yFactor, zFactor, mx: 0, my: 0 });
+          }
+          return temp;
+        }, [count]);
+
+        useFrame((state, delta) => {
+          if(!mesh.current) return;
+          particles.forEach((particle, i) => {
+            let { t, factor, speed, xFactor, yFactor, zFactor } = particle;
+            t = particle.t += speed / 2;
+            const a = Math.cos(t) + Math.sin(t * 1) / 10;
+            const b = Math.sin(t) + Math.cos(t * 2) / 10;
+            const s = Math.cos(t);
+            particle.my -= speed * delta * 50; 
+            if (particle.my < -20) particle.my = 20;
+
+            dummy.position.set(
+              (particle.mx / 10) * a + xFactor + Math.cos((t / 10) * factor) + (Math.sin(t * 1) * factor) / 10,
+              particle.my + yFactor + Math.sin((t / 10) * factor) + (Math.cos(t * 2) * factor) / 10,
+              (particle.my / 10) * b + zFactor + Math.cos((t / 10) * factor) + (Math.sin(t * 3) * factor) / 10
+            );
+            dummy.scale.setScalar(s * 0.1 + 0.05);
+            dummy.rotation.set(s * 5, s * 5, s * 5);
+            dummy.updateMatrix();
+            mesh.current.setMatrixAt(i, dummy.matrix);
+          });
+          mesh.current.instanceMatrix.needsUpdate = true;
+        });
+
+        return (
+          <instancedMesh ref={mesh} args={[undefined, undefined, count]}>
+            <circleGeometry args={[0.1, 8]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.6} depthWrite={false} />
+          </instancedMesh>
+        );
+      };
+
+      const CameraController = ({ gesture, mode }) => {
+        const { camera } = useThree();
+        const controlsRef = useRef(null);
+        useFrame((state, delta) => {
+          if (controlsRef.current) {
+            if (mode === AppMode.EXPLODED && gesture.type !== GestureType.IDLE) {
+              const targetAzimuth = (gesture.position.x - 0.5) * Math.PI * 2;
+              const targetPolar = (gesture.position.y) * Math.PI;
+              controlsRef.current.setAzimuthalAngle(
+                THREE.MathUtils.lerp(controlsRef.current.getAzimuthalAngle(), -targetAzimuth, delta * 2)
+              );
+              controlsRef.current.setPolarAngle(
+                 THREE.MathUtils.lerp(controlsRef.current.getPolarAngle(), targetPolar, delta * 2)
+              );
+            }
+            controlsRef.current.update();
+          }
+        });
+        return (
+          <OrbitControls 
+            ref={controlsRef}
+            enableZoom={true} 
+            enablePan={false}
+            minPolarAngle={Math.PI / 4}
+            maxPolarAngle={Math.PI / 1.5}
+            autoRotate={mode === AppMode.TREE}
+            autoRotateSpeed={0.5}
+          />
         );
       };
 
@@ -309,6 +458,13 @@
             } catch { alert('Permission denied'); }
         };
 
+        const handleFileUpload = (e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const newPhotos = Array.from(e.target.files).map(file => URL.createObjectURL(file));
+            setPhotos(prev => [...newPhotos, ...prev].slice(0, 15));
+          }
+        };
+
         return (
           <div className="relative w-full h-full font-sans text-christmas-silver">
              <Canvas shadows camera={{ position: [0, 0, 18], fov: 45 }} gl={{ antialias: false, powerPreference: "high-performance" }}>
@@ -319,6 +475,13 @@
                    <Environment preset="city" />
                    <group position={[0, -2, 0]}>
                      <Ornaments mode={mode} />
+                     <PhotoCloud 
+                        photos={photos} 
+                        mode={mode} 
+                        activePhotoIndex={null} 
+                        gesturePosition={gesture.position} 
+                     />
+                     <Snow />
                      <Sparkles count={150} scale={10} size={4} speed={0.4} opacity={0.5} color="#C5A059" />
                    </group>
                 </Suspense>
@@ -331,12 +494,7 @@
                   <Vignette eskil={false} offset={0.1} darkness={1.1} />
                 </EffectComposer>
                 
-                <OrbitControls 
-                   enableZoom={true} 
-                   autoRotate={mode === AppMode.TREE} 
-                   autoRotateSpeed={0.5} 
-                   enablePan={false}
-                />
+                <CameraController gesture={gesture} mode={mode} />
              </Canvas>
 
              {/* UI Overlay */}
@@ -346,7 +504,7 @@
 
              {/* Mode Controls */}
              {!permissionGranted && !showIntro && (
-               <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex gap-4">
+               <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex gap-4 pointer-events-auto">
                   <button onClick={() => setMode(AppMode.TREE)} className="px-6 py-2 bg-christmas-gold text-black rounded font-serif">TREE</button>
                   <button onClick={() => setMode(AppMode.EXPLODED)} className="px-6 py-2 border border-christmas-gold text-christmas-gold rounded font-serif bg-black/50">EXPLODE</button>
                </div>
@@ -355,12 +513,12 @@
              {/* Intro */}
              {showIntro && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur">
-                  <div className="text-center p-8 border border-christmas-gold/30 rounded bg-christmas-green/20">
+                  <div className="text-center p-8 border border-christmas-gold/30 rounded bg-christmas-green/20 pointer-events-auto">
                      <h2 className="text-4xl font-serif text-christmas-gold mb-6">Welcome</h2>
                      <button onClick={handleStart} className="bg-christmas-gold text-black px-8 py-3 rounded font-bold tracking-widest flex items-center gap-2 mx-auto">
                         <Camera size={20} /> ENABLE CAMERA
                      </button>
-                     <button onClick={() => setShowIntro(false)} className="mt-4 text-xs text-gray-400 uppercase tracking-widest">Skip Camera</button>
+                     <button onClick={() => setShowIntro(false)} className="mt-4 text-xs text-gray-400 uppercase tracking-widest block mx-auto">Skip Camera</button>
                   </div>
                 </div>
              )}
